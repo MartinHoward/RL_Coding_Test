@@ -1,18 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <pthread.h>
-#include <limits.h>
 
 #include "ft_defs.h"
 
 char acFileDirectory[PATH_MAX];
-char acInterface[10] = "lo";
 
 void * handleClientRequestThread(void *argv)
 {
@@ -43,24 +34,18 @@ int main(int argc, char *argv[])
     socklen_t sSockStoreSize = sizeof(sSockStore);
     pthread_t tid;
 
-    // Get file directory from command line or default to current directory
-    //if (argc == 3)
-    //{
-    //    strcpy(acInterface, argv[1]);
-    //    strcpy(acFileDirectory, argv[2]);
-    //}
-    if (argc == 2)
-    {
-        strcpy(acFileDirectory, argv[1]);
-    }
-    else if (argc == 1)
+    if (argc == 1)
     {
         getcwd(acFileDirectory, sizeof(acFileDirectory));
     }
+    else if (argc == 2)
+    {
+        strcpy(acFileDirectory, argv[1]);
+    }
     else
     {
-        printf("Usage: ftserver [INTERFACE] [DIR]\n");
-        printf("Specify interface to bind to and directory containing files to serve\n");
+        printf("Usage: ftserver [DIR]\n");
+        printf("Specify directory containing files to serve, defauft is current working directory\n");
         exit(EXIT_FAILURE);
     }
 

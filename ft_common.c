@@ -1,16 +1,32 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <pthread.h>
-#include <limits.h>
 
 #include "ft_defs.h"
 
+// ***********************************************************************************************************
+// Function: sendStatus
+//
+// Sends a status code to the other end of the socket connecton
+//
+// Inputs: sock_fd    Socket file descriptor
+//         status     Status code of type teFtStatus
+//
+// Returns: Number of bytes send or -1 for error
+// ***********************************************************************************************************        
+int sendStatus(int sock_fd, teFtStatus status)
+{
+    return send(sock_fd, &status, sizeof(status), 0);
+}
+
+// ***********************************************************************************************************
+// Function: waitForStatus
+//
+// Waits on a socket for a status code sent from the remote end
+//
+// Inputs: sock_fd    Socket file descriptor
+//
+// Returns: Status code or -1 on error
+// ***********************************************************************************************************        
 teFtStatus waitForStatus(int sock_fd)
 {
     int iRet;
@@ -24,45 +40,59 @@ teFtStatus waitForStatus(int sock_fd)
         return iRet;
 }
 
-int sendStatus(int sock_fd, teFtStatus status)
+// ***********************************************************************************************************
+// Function: transferFileToRemote
+//
+// Sends a specified file to the remote end of the socket. Will send an error status to remote end if file
+// is not found
+//
+// Inputs: sock_fd    Socket file descriptor
+//         file_name  Pointer to string containing local file to send
+//
+// Returns: None
+// ***********************************************************************************************************        
+void transferFileToRemote(int sock_fd, char* file_name)
 {
-    return send(sock_fd, &status, sizeof(status), 0);
-}
-
-int transferFileToRemote(int sock_fd, char* file_path)
-{
-    tsFtMessage sClientMsg;
+    tsFtFileBlock sFileBlock;
     FILE *pInFile;
   
-    if ((pInFile = fopen(file_path, "rb")) != NULL)
+    if ((pInFile = fopen(file_name, "rb")) != NULL)
     {
         // Signal client that transfer is about to start
-        sendStatus(sock_fd, FT_READY_RECEIVE);
+        sendStatus(sock_fd, FT_READY_SEND);
 
-        // Each block will contain the send conintue status until the last block is sent with
-        // send complete status
-        sClientMsg.eStatus = FT_TRANSFER_CONTINUE;
-
-        while (!feof(pInFile))
+        // Wait for acknowledge that client is ready
+        if (waitForStatus(sock_fd) == FT_READY_RECEIVE)
         {
-            // Read block from local file and send
-            sClientMsg.iByteCount = fread(sClientMsg.acDataBlock, 1, MAX_BLOCK_SIZE, pInFile);
+            // Each block will contain the send conintue status until the last block is sent with
+            // send complete status
+            sFileBlock.eStatus = FT_TRANSFER_CONTINUE;
 
-            // When end of file is reached we want to tell the client to not expect any more
-            if (feof(pInFile))
-                sClientMsg.eStatus = FT_TRANSFER_COMPLETE;
+            while (!feof(pInFile))
+            {
+                // Read block from local file and send
+                sFileBlock.iByteCount = fread(sFileBlock.acDataBlock, 1, MAX_BLOCK_SIZE, pInFile);
 
-            if (send(sock_fd, &sClientMsg, sizeof(sClientMsg), 0) == -1)
-                printf("Failed to send to client - errno: %d", errno);
+                // When end of file is reached we want to tell the client to not expect any more
+                if (feof(pInFile))
+                    sFileBlock.eStatus = FT_TRANSFER_COMPLETE;
+
+                if (send(sock_fd, &sFileBlock, sizeof(sFileBlock), 0) == -1)
+                    printf("Failed to send to client - errno: %d", errno);
+            }
+
+            // Wait for receipt ack from client
+            if (waitForStatus(sock_fd) == FT_RECEIVE_ACK)
+                printf("Transfer complete: %s\n", file_name);
+            else
+                printf("Client failed to acknowledge receipt\n");
+
+            fclose(pInFile);
         }
-
-        // Wait for receipt ack from client
-        if (waitForStatus(sock_fd) == FT_RECEIVE_ACK)
-            printf("Transfer complete: %s\n", file_path);
-        else
-            printf("Client failed to acknowledge receipt\n");
-
-        fclose(pInFile);
+        else 
+        {
+            printf("Client failed to acknowledge ready to receive");
+        }
     }
     else
     {
@@ -71,6 +101,72 @@ int transferFileToRemote(int sock_fd, char* file_path)
         printf("File not found - transfer aborted\n");
     }
     
-    return 0;
+    return;
+}
+
+// ***********************************************************************************************************
+// Function: receiveFileFromRemote
+//
+// Receives a specified file from a server at the remote end of the socket. The file will be stored in the
+// current working directory if the transfer succeeds. 
+//
+// Inputs: sock_fd    Socket file descriptor
+//         file_name  Pointer to string containing remote file to retreive
+//
+// Returns: None
+// ***********************************************************************************************************        
+void receiveFileFromRemote(int sock_fd, char* file_name, BOOL update)
+{
+    unsigned long ulBytesTransferred = 0; 
+    tsFtFileBlock sFileBlock;
+    FILE *pInFile;
+    
+    if (update)
+    {
+        printf("TODO: Implement file update\n");
+    }
+
+    if ((pInFile = fopen(file_name, "wb")) != NULL)
+    {
+        sendStatus(sock_fd, FT_READY_RECEIVE);
+        printf("Transfering file: %s\n", file_name);
+
+        while (1)
+        {
+            recv(sock_fd, &sFileBlock, sizeof(sFileBlock), 0);
+
+            ulBytesTransferred += sFileBlock.iByteCount;
+
+            if ((sFileBlock.eStatus == FT_TRANSFER_CONTINUE) ||
+                (sFileBlock.eStatus == FT_TRANSFER_COMPLETE))
+            {
+                fwrite(sFileBlock.acDataBlock, sFileBlock.iByteCount, 1, pInFile);
+
+                if (sFileBlock.eStatus == FT_TRANSFER_COMPLETE)
+                {
+                    // Acknowledge file received to server
+                    sendStatus(sock_fd, FT_RECEIVE_ACK);
+                        
+                    printf("\nFile transfer complete - bytes: %ld\n", ulBytesTransferred);
+                    break;
+                }
+            }
+            else
+            {
+                // Something unexpected happened - remove local file
+                remove(file_name);
+                printf("Fatal server error - aborting\n");
+                break;
+            }
+        }
+
+        fclose(pInFile);
+    }
+    else
+    {
+        printf("Failed to open local file - Aborting\n");
+    }
+
+    return;
 }
 
