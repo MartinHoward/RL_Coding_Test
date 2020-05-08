@@ -14,30 +14,17 @@
 char acFileDirectory[PATH_MAX];
 char acInterface[10] = "lo";
 
-void * handleClientRequestThread(void *argv)
+int transferFileToRemote(int sock, char* file_path)
 {
-    int iSock = *((int *)argv);
-    char acFileName[NAME_MAX];
-    char acFilePath[PATH_MAX+NAME_MAX];
     tsFtMessage sClientMsg;
     teFtStatus eStatus;
     FILE *pInFile;
-
-    memset(&sClientMsg, 0, sizeof(sClientMsg));
-
-    // Receive file name to transfer from client
-    recv(iSock, acFileName, NAME_MAX, 0);
-
-    // Get full path name
-    sprintf(acFilePath, "%s/%s", acFileDirectory, acFileName);
-
-    printf("File requested: %s\n", acFilePath);
-
-    if ((pInFile = fopen(acFilePath, "rb")) != NULL)
+  
+    if ((pInFile = fopen(file_path, "rb")) != NULL)
     {
         // Signal client that transfer is about to start
         eStatus = FT_READY_RECEIVE;
-        send(iSock, &eStatus, sizeof(eStatus), 0);
+        send(sock, &eStatus, sizeof(eStatus), 0);
 
         // Each block will contain the send conintue status until the last block is sent with
         // send complete status
@@ -52,15 +39,15 @@ void * handleClientRequestThread(void *argv)
             if (feof(pInFile))
                 sClientMsg.eStatus = FT_TRANSFER_COMPLETE;
 //usleep(1);
-            if (send(iSock, &sClientMsg, sizeof(sClientMsg), 0) == -1)
+            if (send(sock, &sClientMsg, sizeof(sClientMsg), 0) == -1)
                 printf("Failed to send to client - errno: %d", errno);
         }
 
         // Wait for receipt ack from client
-        recv(iSock, &eStatus, sizeof(eStatus), 0);
+        recv(sock, &eStatus, sizeof(eStatus), 0);
 
         if (eStatus == FT_RECEIVE_ACK)
-            printf("Transfer complete: %s\n", acFilePath);
+            printf("Transfer complete: %s\n", file_path);
         else
             printf("Client failed to acknowledge receipt\n");
 
@@ -70,10 +57,29 @@ void * handleClientRequestThread(void *argv)
     {
         // Send error status to client
         eStatus = FT_FILE_NOT_FOUND;
-        send(iSock, &eStatus, sizeof(eStatus), 0);
-        printf("File not found - closing connection\n");
+        send(sock, &eStatus, sizeof(eStatus), 0);
+        printf("File not found - transfer aborted\n");
     }
+    
+    return 0;
+}
 
+void * handleClientRequestThread(void *argv)
+{
+    int iSock = *((int *)argv);
+    char acFileName[NAME_MAX];
+    char acFilePath[PATH_MAX+NAME_MAX];
+
+    // Receive file name to transfer from client
+    recv(iSock, acFileName, NAME_MAX, 0);
+
+    // Get full path name
+    sprintf(acFilePath, "%s/%s", acFileDirectory, acFileName);
+
+    printf("File requested: %s\n", acFilePath);
+
+    transferFileToRemote(iSock, acFilePath);
+    
     close(iSock);
 
     pthread_exit(NULL);
