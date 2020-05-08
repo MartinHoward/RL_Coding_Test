@@ -21,4 +21,8 @@ typedef struct
     char       acDataBlock[MAX_BLOCK_SIZE];
 } tsFtMessage;
 
+teFtStatus waitForStatus(int sock_fd);
+int sendStatus(int sock_fd, teFtStatus status);
+int transferFileToRemote(int sock_fd, char* file_path);
+
 #endif

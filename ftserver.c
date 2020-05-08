@@ -14,56 +14,6 @@
 char acFileDirectory[PATH_MAX];
 char acInterface[10] = "lo";
 
-int transferFileToRemote(int sock, char* file_path)
-{
-    tsFtMessage sClientMsg;
-    teFtStatus eStatus;
-    FILE *pInFile;
-  
-    if ((pInFile = fopen(file_path, "rb")) != NULL)
-    {
-        // Signal client that transfer is about to start
-        eStatus = FT_READY_RECEIVE;
-        send(sock, &eStatus, sizeof(eStatus), 0);
-
-        // Each block will contain the send conintue status until the last block is sent with
-        // send complete status
-        sClientMsg.eStatus = FT_TRANSFER_CONTINUE;
-
-        while (!feof(pInFile))
-        {
-            // Read block from local file and send
-            sClientMsg.iByteCount = fread(sClientMsg.acDataBlock, 1, MAX_BLOCK_SIZE, pInFile);
-
-            // When end of file is reached we want to tell the client to not expect any more
-            if (feof(pInFile))
-                sClientMsg.eStatus = FT_TRANSFER_COMPLETE;
-//usleep(1);
-            if (send(sock, &sClientMsg, sizeof(sClientMsg), 0) == -1)
-                printf("Failed to send to client - errno: %d", errno);
-        }
-
-        // Wait for receipt ack from client
-        recv(sock, &eStatus, sizeof(eStatus), 0);
-
-        if (eStatus == FT_RECEIVE_ACK)
-            printf("Transfer complete: %s\n", file_path);
-        else
-            printf("Client failed to acknowledge receipt\n");
-
-        fclose(pInFile);
-    }
-    else
-    {
-        // Send error status to client
-        eStatus = FT_FILE_NOT_FOUND;
-        send(sock, &eStatus, sizeof(eStatus), 0);
-        printf("File not found - transfer aborted\n");
-    }
-    
-    return 0;
-}
-
 void * handleClientRequestThread(void *argv)
 {
     int iSock = *((int *)argv);

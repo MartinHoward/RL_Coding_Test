@@ -4,7 +4,9 @@ CC = gcc
 # compiler flags:
 CFLAGS  = -Wall -pthread
 
-all: ftserver ftclient
+all: ftserver ftclient ftcommon.o
+
+ftcommon.o
 
 ftserver: ftserver.c 
 	$(CC) $(CFLAGS) -o ftserver ftserver.c
