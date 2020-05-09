@@ -35,6 +35,9 @@ void * handleClientRequestThread(void *argv)
     char acFilePath[PATH_MAX+NAME_MAX];
     BOOL bFileUpdate = FALSE;
 
+    memset(acFileName, 0, sizeof(acFileName));
+    memset(acFilePath, 0, sizeof(acFilePath));
+    
     // Wait for client to indicate download type
     if (waitForStatus(iSock) == FT_FILE_UPDATE)
     {
