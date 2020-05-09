@@ -1,10 +1,39 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <openssl/evp.h>
+
+#include "md5.h"
 #include "ft_defs.h"
 
 #define HASH_BASE 256
-#define PRIME_MOD 101
+#define PRIME_MOD 1000000007
+
+unsigned long computeHashForBlock(char *data_block, int block_size)
+{
+    int i;
+    unsigned long hash = 0;
+    
+    for (i = 0; i < block_size; i++)
+    {
+        hash *= HASH_BASE;
+        hash += data_block[i];
+        hash %= PRIME_MOD;
+    }
+    
+    return hash;
+}
+
+unsigned char *computeMd5HashForBlock(char *data_block, int block_size, unsigned char* hash)
+{
+    MD5_CTX ctx;
+        
+    MD5Init(&ctx);
+    
+    MD5Update(&ctx, data_block, block_size);
+    
+    MD5Final(hash, &ctx);
+    
+    return hash;
+}
 
 // ***********************************************************************************************************
 // Function: sendStatus
@@ -118,17 +147,12 @@ void transferFileToRemote(int sock_fd, char* file_name)
 //
 // Returns: None
 // ***********************************************************************************************************        
-void receiveFileFromRemote(int sock_fd, char* file_name, BOOL update)
+void receiveFileFromRemote(int sock_fd, char* file_name)
 {
     unsigned long ulBytesTransferred = 0; 
     tsFtFileBlock sFileBlock;
     FILE *pInFile;
     
-    if (update)
-    {
-        printf("TODO: Implement file update\n");
-    }
-
     if ((pInFile = fopen(file_name, "wb")) != NULL)
     {
         sendStatus(sock_fd, FT_READY_RECEIVE);
@@ -173,31 +197,3 @@ void receiveFileFromRemote(int sock_fd, char* file_name, BOOL update)
     return;
 }
 
-unsigned long computeHashForBlock(char *data_block, int block_size)
-{
-    int i;
-    unsigned hash = 0;
-    
-    for (i = 0; i < block_size; i++)
-    {
-        hash *= HASH_BASE;
-        hash += data_block[i];
-        hash %= PRIME_MOD;
-    }
-    
-    return hash;
-}
-
-unsigned char *computeMd5HashForBlock(char *data_block, int block_size, unsigned char* hash)
-{
-    MD5_CTX ctx;
-    unsigned char ucDigest[16];
-        
-    MD5_Init(&ctx);
-    
-    MD5_Update(&ctx, data_block, block_size);
-    
-    MD5_Final(hash, &ctx);
-    
-    return hash;
-}
