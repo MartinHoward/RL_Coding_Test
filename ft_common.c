@@ -160,7 +160,11 @@ void receiveFileFromRemote(int sock_fd, char* file_name)
 
         while (1)
         {
-            recv(sock_fd, &sFileBlock, sizeof(sFileBlock), 0);
+            if (recv(sock_fd, &sFileBlock, sizeof(sFileBlock), 0) == -1)
+            {
+                printf("***Fatal server error - aborting\n");
+                break;
+            }
 
             ulBytesTransferred += sFileBlock.iByteCount;
 
