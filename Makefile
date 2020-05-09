@@ -2,7 +2,7 @@
 CC = gcc
 
 # compiler flags:
-CFLAGS  = -Wall -pthread
+CFLAGS  = -Wall -pthread -lssl -lcrypto
 
 all: ftserver ftclient
 

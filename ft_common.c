@@ -1,7 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <openssl/evp.h>
 #include "ft_defs.h"
+
+#define HASH_BASE 256
+#define PRIME_MOD 101
 
 // ***********************************************************************************************************
 // Function: sendStatus
@@ -170,3 +173,31 @@ void receiveFileFromRemote(int sock_fd, char* file_name, BOOL update)
     return;
 }
 
+unsigned long computeHashForBlock(char *data_block, int block_size)
+{
+    int i;
+    unsigned hash = 0;
+    
+    for (i = 0; i < block_size; i++)
+    {
+        hash *= HASH_BASE;
+        hash += data_block[i];
+        hash %= PRIME_MOD;
+    }
+    
+    return hash;
+}
+
+unsigned char *computeMd5HashForBlock(char *data_block, int block_size, unsigned char* hash)
+{
+    MD5_CTX ctx;
+    unsigned char ucDigest[16];
+        
+    MD5_Init(&ctx);
+    
+    MD5_Update(&ctx, data_block, block_size);
+    
+    MD5_Final(hash, &ctx);
+    
+    return hash;
+}
