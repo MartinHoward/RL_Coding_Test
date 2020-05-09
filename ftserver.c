@@ -5,12 +5,43 @@
 
 char acFileDirectory[PATH_MAX];
 
+void handleFileUpdateRequest(int sock_fd, char *file_name)
+{
+    char acFileName[NAME_MAX];
+    
+    // Get status response from remote end before starting
+    if (waitForStatus(sock_fd) == FT_READY_SEND)
+    {
+        // Generate a local temp file to store the hashes
+        sprintf(acFileName, "tmpFile-%d", (int) pthread_self());
+    
+        // Get the hash file from the client
+        receiveFileFromRemote(sock_fd, acFileName);
+    
+        // TODO: Process hash file and send response back
+    
+        // TODO: Delete temp file
+    }
+    else
+    {
+        printf("Fatal client error - Aborting\n");
+    }
+}
+
 void * handleClientRequestThread(void *argv)
 {
     int iSock = *((int *)argv);
     char acFileName[NAME_MAX];
     char acFilePath[PATH_MAX+NAME_MAX];
+    BOOL bFileUpdate = FALSE;
 
+    // Wait for client to indicate download type
+    if (waitForStatus(iSock) == FT_FILE_UPDATE)
+    {
+        bFileUpdate = TRUE;
+        printf("File update requested\n");
+    }
+    
     // Receive file name to transfer from client
     recv(iSock, acFileName, NAME_MAX, 0);
 
@@ -19,7 +50,14 @@ void * handleClientRequestThread(void *argv)
 
     printf("File requested: %s\n", acFilePath);
 
-    transferFileToRemote(iSock, acFilePath);
+    if (bFileUpdate)
+    {
+        handleFileUpdateRequest(iSock, acFilePath);
+    }
+    else 
+    {
+        transferFileToRemote(iSock, acFilePath);
+    }
     
     close(iSock);
 
