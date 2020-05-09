@@ -111,6 +111,9 @@ void transferFileToRemote(int sock_fd, char* file_name)
 
                 if (send(sock_fd, &sFileBlock, sizeof(sFileBlock), 0) == -1)
                     printf("Failed to send to client - errno: %d", errno);
+                    
+                // Slow things down a bit - Raspberry pi seems to get overwhelmed - fine on Mac OS
+                usleep(50000);
             }
 
             // Wait for receipt ack from client
@@ -162,7 +165,7 @@ void receiveFileFromRemote(int sock_fd, char* file_name)
         {
             if (recv(sock_fd, &sFileBlock, sizeof(sFileBlock), 0) == -1)
             {
-                printf("***Fatal server error - aborting\n");
+                printf("Fatal server error - aborting\n");
                 break;
             }
 
