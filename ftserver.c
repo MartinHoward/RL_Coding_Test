@@ -5,22 +5,127 @@
 
 char acFileDirectory[PATH_MAX];
 
+int searchForHash(BYTE *data_block, char *hash_file, unsigned long hash)
+{
+    int rc = -1, block = 0;
+    FILE *pHashFile;
+    tsFtFileBlockHash sBlockHash;
+    unsigned char acMd5Hash[MD5_HASH_SIZE];
+    
+    if ((pHashFile = fopen(hash_file, "rb")) != NULL)
+    {
+        while (!feof(pHashFile))
+        {
+            fread(&sBlockHash, 1, sizeof(tsFtFileBlockHash), pHashFile);
+            
+            if (hash == sBlockHash.ulHash)
+            {
+                // Now get the MD5 hash of the source block
+                computeMd5HashForBlock(data_block, MAX_BLOCK_SIZE, acMd5Hash);
+                
+                // Check for match
+                if (memcmp(acMd5Hash, sBlockHash.acMd5Hash, sizeof(acMd5Hash)) == 0)
+                {
+                    rc = block;
+                    break;
+                }
+            }
+            
+            block++;
+        }
+        
+        fclose(pHashFile);
+    }
+    
+    return rc;
+}
+
+void generateRsyncFile(int sock_fd, char *source_file, char *hash_file)
+{
+    int block;
+    char asRsyncFileName[NAME_MAX];
+    BYTE acDataBlock[MAX_BLOCK_SIZE];
+    FILE *pSrcFile, *pRsyncFile;
+    long lFilePos = 0;
+    tsRsyncRecord sRsyncRecord;
+    unsigned long ulHash;
+    
+    // Start by creating the temp rsync file
+    sprintf(asRsyncFileName, "tmpRsyncFile-%d", (int) pthread_self());
+    
+    // Open all files
+    if (((pSrcFile = fopen(source_file, "rb")) != NULL) &&    
+        ((pRsyncFile = fopen(asRsyncFileName, "wb")) != NULL))
+    {
+        while (!feof(pSrcFile))
+        {
+            // Read block
+            fread(acDataBlock, 1, sizeof(acDataBlock), pSrcFile);
+
+            // Compute hash for block
+            ulHash = computeHashForBlock(acDataBlock, sizeof(acDataBlock));
+            
+            printf("Computed hash %ld - lFilePos %ld\n", ulHash, lFilePos);
+    
+            // Search for matching hash in hash file
+            if ((block = searchForHash(acDataBlock, hash_file, ulHash)) != -1)
+            {
+                // A matching block has been found, add info to rsync file
+                sRsyncRecord.bReuseBlock = TRUE;
+                sRsyncRecord.ulBlockIdOrChar = block;
+            
+                fwrite(&sRsyncRecord, sizeof(sRsyncRecord), 1, pRsyncFile);
+                
+                // Advance input file pointer by one block
+                lFilePos += sizeof(acDataBlock);
+                //fseek(pSrcFile, lFilePos, SEEK_CUR);
+            }    
+            else 
+            {
+                // Send the first byte in the block
+                sRsyncRecord.bReuseBlock = FALSE;
+                sRsyncRecord.ulBlockIdOrChar = (BYTE) acDataBlock[0];
+            
+                fwrite(&sRsyncRecord, sizeof(sRsyncRecord), 1, pRsyncFile);
+                
+                // Advance input file pointer by one byte
+                lFilePos += sizeof(acDataBlock);
+                rewind(pSrcFile);
+                fseek(pSrcFile, lFilePos, SEEK_SET);
+            }
+        }
+        
+        fclose(pSrcFile);
+        fclose(pRsyncFile);
+    }
+    
+    // Send the rsync file to the client
+    transferFileToRemote(sock_fd, asRsyncFileName);
+    
+    // Remove tmpfile
+    remove(asRsyncFileName);
+          
+    return;
+}
+
 void handleFileUpdateRequest(int sock_fd, char *file_name)
 {
-    char acFileName[NAME_MAX];
+    char acHashFileName[NAME_MAX];
     
     // Get status response from remote end before starting
     if (waitForStatus(sock_fd) == FT_READY_SEND)
     {
         // Generate a local temp file to store the hashes
-        sprintf(acFileName, "tmpFile-%d", (int) pthread_self());
+        sprintf(acHashFileName, "tmpHashFile-%d", (int) pthread_self());
     
         // Get the hash file from the client
-        receiveFileFromRemote(sock_fd, acFileName);
+        receiveFileFromRemote(sock_fd, acHashFileName);
     
         // TODO: Process hash file and send response back
-    
+        generateRsyncFile(sock_fd, file_name, acHashFileName);
+        
         // TODO: Delete temp file
+        remove(acHashFileName);
     }
     else
     {

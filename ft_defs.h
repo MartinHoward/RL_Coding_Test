@@ -18,6 +18,9 @@
 #define MAX_BLOCK_SIZE  256
 #define MD5_HASH_SIZE   16
 
+typedef unsigned char   BYTE;
+typedef int BOOL;
+
 typedef enum
 {
     FT_FILE_NOT_FOUND    = 0,
@@ -34,18 +37,24 @@ typedef struct
 {
     teFtStatus eStatus;
     int        iByteCount;
-    char       acDataBlock[MAX_BLOCK_SIZE];
+    BYTE       acDataBlock[MAX_BLOCK_SIZE];
 } tsFtFileBlock;
 
-typedef struct{
+typedef struct
+{
     unsigned long ulHash;
     unsigned char acMd5Hash[MD5_HASH_SIZE];
 } tsFtFileBlockHash;
 
-typedef int BOOL;
+typedef struct
+{
+    BOOL bReuseBlock;
+    unsigned long ulBlockIdOrChar;
+} tsRsyncRecord;
 
-unsigned long computeHashForBlock(char *data_block, int block_size);
-unsigned char *computeMd5HashForBlock(char *data_block, int block_size, unsigned char* hash);
+unsigned long computeHashForBlock(BYTE *data_block, int block_size);
+unsigned long computeRollingHash(unsigned long hash, BYTE byte_to_roll, BYTE byte_to_add, int block_size);
+unsigned char *computeMd5HashForBlock(BYTE *data_block, int block_size, unsigned char* hash);
 int sendStatus(int sock_fd, teFtStatus status);
 teFtStatus waitForStatus(int sock_fd);
 void transferFileToRemote(int sock_fd, char* file_path);

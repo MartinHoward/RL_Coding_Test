@@ -7,22 +7,27 @@
 #define HASH_BASE 256
 #define PRIME_MOD 1000000007
 
-unsigned long computeHashForBlock(char *data_block, int block_size)
+unsigned long computeHashForBlock(BYTE *data_block, int block_size)
 {
     int i;
     unsigned long hash = 0;
     
     for (i = 0; i < block_size; i++)
     {
-        hash *= HASH_BASE;
         hash += data_block[i];
-        hash %= PRIME_MOD;
     }
+    
+    hash %= block_size;
     
     return hash;
 }
 
-unsigned char *computeMd5HashForBlock(char *data_block, int block_size, unsigned char* hash)
+unsigned long computeRollingHash(unsigned long hash, BYTE first_byte, BYTE new_byte, int block_size)
+{
+    return (hash + new_byte - first_byte) % (block_size + 1);
+}
+
+unsigned char *computeMd5HashForBlock(BYTE *data_block, int block_size, unsigned char* hash)
 {
     MD5_CTX ctx;
         
@@ -106,9 +111,11 @@ void transferFileToRemote(int sock_fd, char* file_name)
                 sFileBlock.iByteCount = fread(sFileBlock.acDataBlock, 1, MAX_BLOCK_SIZE, pInFile);
 
                 // When end of file is reached we want to tell the client to not expect any more
-                if (feof(pInFile))
+                if (feof(pInFile) || sFileBlock.iByteCount < MAX_BLOCK_SIZE)
+                {
                     sFileBlock.eStatus = FT_TRANSFER_COMPLETE;
-
+                }
+                
                 if (send(sock_fd, &sFileBlock, sizeof(sFileBlock), 0) == -1)
                     printf("Failed to send to client - errno: %d", errno);
                     
@@ -171,12 +178,15 @@ void receiveFileFromRemote(int sock_fd, char* file_name)
 
             ulBytesTransferred += sFileBlock.iByteCount;
 
+            printf("**** Recevied: %ld bytes, status: %d\n", ulBytesTransferred, sFileBlock.eStatus);
+            
             if ((sFileBlock.eStatus == FT_TRANSFER_CONTINUE) ||
                 (sFileBlock.eStatus == FT_TRANSFER_COMPLETE))
             {
                 fwrite(sFileBlock.acDataBlock, sFileBlock.iByteCount, 1, pInFile);
 
-                if (sFileBlock.eStatus == FT_TRANSFER_COMPLETE)
+                if ((sFileBlock.eStatus == FT_TRANSFER_COMPLETE) ||
+                    (sFileBlock.iByteCount < MAX_BLOCK_SIZE))
                 {
                     // Acknowledge file received to server
                     sendStatus(sock_fd, FT_RECEIVE_ACK);
@@ -188,7 +198,7 @@ void receiveFileFromRemote(int sock_fd, char* file_name)
             else
             {
                 // Something unexpected happened - remove local file
-                remove(file_name);
+                //remove(file_name);
                 printf("Fatal server error - aborting\n");
                 break;
             }

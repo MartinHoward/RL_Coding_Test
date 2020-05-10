@@ -44,7 +44,16 @@ void handleFileUpdate(int sock_fd, char *file_name)
     // Send hash file to server
     transferFileToRemote(sock_fd, TMP_HASH_FILE_NAME);
     
-    //receiveFileFromRemote(iSockFd, acFileName);
+    // Get status response from server before starting
+    if (waitForStatus(sock_fd) == FT_READY_SEND)
+    {
+        // File does not exist locally - transfer complete file
+        receiveFileFromRemote(sock_fd, "tmpRsync");
+    }
+    else
+    {
+        printf("Server failed to send file - Aborting\n");
+    }
 }
 
 void handleFileDownload(int sock_fd, char *file_name)
