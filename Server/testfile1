@@ -96,6 +96,18 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    if (bind(iSockFd, (struct sockaddr *) &sSockAddr, sizeof(sSockAddr)) < 0)
+    {	
+        printf("Socket Error: failed to bind socket\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Listen on socket for client connections
+    if (listen(iSockFd, MAX_CLIENTS) != 0)
+    {
+        printf("Socket Error: listen failed\n");
+        exit(EXIT_FAILURE);
+    }
     while(1)
     {
         iClientSockFd = accept(iSockFd, (struct sockaddr *) &sSockStore, &sSockStoreSize);

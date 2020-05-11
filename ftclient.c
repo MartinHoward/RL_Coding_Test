@@ -30,6 +30,7 @@ int generateRsyncHashFile(char *orig_file_name, char *hash_file_name)
     {
         while (!feof(pInFile))
         {
+            memset(sFileBlock.acDataBlock, 0, MAX_BLOCK_SIZE);
             fread(sFileBlock.acDataBlock, 1, MAX_BLOCK_SIZE, pInFile);
             
             // Compute the hashes and store to temp file

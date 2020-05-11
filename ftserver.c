@@ -89,6 +89,7 @@ int generateRsyncFile(int sock_fd, char *source_file_name, char *hash_file_name)
         while(lFilePos < lSrcFileSize)
         {
             // Read block
+            memset(acDataBlock, 0, sizeof(acDataBlock));
             fseek(pSrcFile, lFilePos, SEEK_SET);
             fread(acDataBlock, 1, sizeof(acDataBlock), pSrcFile);
 

@@ -15,7 +15,7 @@
 
 #define FT_IP_PORT           9999
 #define MAX_CLIENTS          5
-#define MAX_BLOCK_SIZE       256
+#define MAX_BLOCK_SIZE       1024
 #define MD5_HASH_SIZE        16
 #define RSYNC_DATATYPE_BYTE  'C'
 #define RSYNC_DATATYPE_BLOCK 'B'

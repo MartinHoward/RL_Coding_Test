@@ -83,5 +83,7 @@ Rsync file
 Not yet implemented:
 
 1. A means of comparing the MD5 hash between the files on server and client before doing an Rsync
-2. Some improved error handling
+2. Some improved error handling and logging
+
+Also requires more extensive testing.
 
