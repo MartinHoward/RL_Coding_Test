@@ -26,7 +26,7 @@ Both parameters are required. If the requested file already resides in the worki
 
 Transfer protocol:
 
-I went with pipelining to reduce latency that can occur by signalling between client and server for each block.
+I went with pipelining to reduce latency that can occur by signaling between client and server for each block.
 
 Receiver                                            Sender
 ========                                            ======
@@ -86,5 +86,5 @@ Not yet implemented:
 1. A means of comparing the MD5 hash between the files on server and client before doing an Rsync. Quite important to not waste bandwidth sending Rsync files across for no reason
 2. Some improved error handling and logging
 
-
+Note: This was developed on a Mac using standard C/C++ dev tools. I did some testing on a Raspberry Pi using dietpi.
 
