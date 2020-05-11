@@ -28,29 +28,29 @@ Transfer protocol:
 
 I went with pipelining to reduce latency that can occur by signalling between client and server for each block.
 
-Receiver											Sender
-========											======
+Receiver                                            Sender
+========                                            ======
 
-Filename   	----------------------------------->
-		   	<----------------------------------- READY SEND
-READY REC  	----------------------------------->
-		   	<----------------------------------- Block 0 (TRANSFER_CONTINUE)
-		   	<----------------------------------- Block 1 (TRANSFER_CONTINUE)
-		   	<----------------------------------- Block 2 (TRANSFER_CONTINUE)
-						   .
-						   .
-						   .
-		   	<----------------------------------- Block n-1 (TRANSFER_CONTINUE)
-		   	<----------------------------------- Block n   (TRANSFER_COMPLETE)
+Filename    ----------------------------------->
+            <----------------------------------- READY SEND
+READY REC   ----------------------------------->
+            <----------------------------------- Block 0 (TRANSFER_CONTINUE)
+            <----------------------------------- Block 1 (TRANSFER_CONTINUE)
+            <----------------------------------- Block 2 (TRANSFER_CONTINUE)
+                           .
+                           .
+                           .
+            <----------------------------------- Block n-1 (TRANSFER_CONTINUE)
+            <----------------------------------- Block n   (TRANSFER_COMPLETE)
 RECEIPT ACK ----------------------------------->
 						
 		
 Source files:
 
-ftclient.c		Original code that implements client 
-ftserver.c		Original code that implements server
-ft_common.c		Common code used by server and client
-ft_defs.h		Header file containing definitions used by above source files
+ftclient.c      Original code that implements client 
+ftserver.c.     Original code that implements server
+ft_common.c.    Common code used by server and client
+ft_defs.h.      Header file containing definitions used by above source files
 
 The following code was pulled from RFC 1321. I had issues installing the OpenSSL library on my Mac so I decided to make use of this implementation.
 md5.h
@@ -68,13 +68,13 @@ I implemented the Rsync algorithm to keep files in sync without transferring the
 
 The mechanism works as follows:
 
-Client											Server
-======											======
+Client                                          Server
+======                                          ======
 
 Generate hash file
 Send hash file to server -------------------->
-												Generate Rsync file based on hash file
-						 <--------------------  Send Rsync file to client
+                                                Generate Rsync file based on hash file
+                         <--------------------  Send Rsync file to client
 Client builds new
 version based on 
 Rsync file
@@ -83,5 +83,5 @@ Rsync file
 Not yet implemented:
 
 1. A means of comparing the MD5 hash between the files on server and client before doing an Rsync
-2. Some improved error management
+2. Some improved error handling
 
