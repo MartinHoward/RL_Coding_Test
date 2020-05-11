@@ -53,6 +53,7 @@ ft_common.c.    Common code used by server and client
 ft_defs.h.      Header file containing definitions used by above source files
 
 The following code was pulled from RFC 1321. I had issues installing the OpenSSL library on my Mac so I decided to make use of this implementation.
+global.h
 md5.h
 md5.c		
 
