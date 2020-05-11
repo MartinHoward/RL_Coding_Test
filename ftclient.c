@@ -7,14 +7,25 @@
 #define TMP_HASH_FILE_NAME  "tmpHashFile"
 #define TMP_RSYNC_FILE_NAME "tmpRsyncFile"
 
-int generateHashFile(char *file_name, char *hash_file_name)
+// ***********************************************************************************************************
+// Function: generateRsyncHashFile
+//
+// Generates a hash file to send to the file server when an Rsync is requested. The file contains a simple
+// hash along with an MD5 hash for each block in the original file
+//
+// Inputs: orig_file_name    pointer to string containing the name of the original file to Rsync
+//         hash_file_name    pointer to string containing the name of the hash file to send to the server
+//
+// Returns: 0 on success, -1 on error
+// ***********************************************************************************************************        
+int generateRsyncHashFile(char *orig_file_name, char *hash_file_name)
 {
     int rc = 0;
     FILE *pInFile, *pTmpFile;
     tsFtFileBlock sFileBlock;
     tsFtFileBlockHash sBlockHash;
 
-    if (((pInFile = fopen(file_name, "rb")) != NULL) &&
+    if (((pInFile = fopen(orig_file_name, "rb")) != NULL) &&
          (pTmpFile = fopen(hash_file_name, "wb")) != NULL)
     {
         while (!feof(pInFile))
@@ -39,7 +50,18 @@ int generateHashFile(char *file_name, char *hash_file_name)
     return rc;
 }
 
-int processRsyncFile(char *file_name, char *rsync_file_name)
+// ***********************************************************************************************************
+// Function: processRsyncFile
+//
+// Processes the Rsync file sent from the server. This function updates the original file based on the
+// Rsync instructions contained in the file
+//
+// Inputs: orig_file_name    pointer to string containing the name of the original file to Rsync
+//         rsync_file_name   pointer to string containing the name of the Rsync file to use
+//
+// Returns: 0 on success, -1 on error
+// ***********************************************************************************************************        
+int processRsyncFile(char *orig_file_name, char *rsync_file_name)
 {
     int iBlock, rc = 0;
     char cDataType;
@@ -47,9 +69,9 @@ int processRsyncFile(char *file_name, char *rsync_file_name)
     FILE *pInFile, *pTmpRsyncFile, *pTmpFinalFile;
     char acFileBlock[MAX_BLOCK_SIZE];
     
-    if ((  ((pInFile = fopen(file_name, "rb")) != NULL) &&
-           (pTmpRsyncFile = fopen(rsync_file_name, "rb")) != NULL) &&
-           (pTmpFinalFile = fopen(TMP_FINAL_FILE, "wb")) != NULL)
+    if ((((pInFile = fopen(orig_file_name, "rb")) != NULL) &&
+          (pTmpRsyncFile = fopen(rsync_file_name, "rb")) != NULL) &&
+          (pTmpFinalFile = fopen(TMP_FINAL_FILE, "wb")) != NULL)
     {
         while (!feof(pTmpRsyncFile))
         {
@@ -76,69 +98,106 @@ int processRsyncFile(char *file_name, char *rsync_file_name)
             else {
                 if (!feof(pTmpRsyncFile))
                 {
-                    printf("Rsync file parse error\n");
+                    printf("Rsync file parse failure\n");
                     rc = -1;
                     break;
                 }
             }
         }
         
+        fclose(pInFile);
+        fclose(pTmpRsyncFile);
+        fclose(pTmpFinalFile);
+            
+        // Remove temp rsync file
+        remove(rsync_file_name);
+            
         if (rc == 0)
         {
-            fclose(pInFile);
-            fclose(pTmpRsyncFile);
-            fclose(pTmpFinalFile);
-            
-            // Remove temp rsync file
-            remove(rsync_file_name);
-            
             // Replace old file with temp file
-            remove(file_name);
-            rename(TMP_FINAL_FILE, file_name);
-        
-            printf("Rsync of file: %s complete\n", file_name);
+            remove(orig_file_name);
+            rename(TMP_FINAL_FILE, orig_file_name);
         }
     }
     else 
     {
         rc = -1;
-        printf("Failed to process Rsync file\n");
     }
     
     return rc;
 }
 
-void handleFileRsync(int sock_fd, char *file_name)
+// ***********************************************************************************************************
+// Function: handleFileRsync
+//
+// Handles the Rsync operation for a file with the server. This function generates and sends the hash file
+// to the server then receives the Rsync file and contstructs the final file using the instructions in
+// the Rsync file received from the server
+//
+// Inputs:  sock_fd           Socket file descriptor to the server
+//          orig_file_name    pointer to string containing the name of the original file to Rsync
+//
+// Returns: None
+// ***********************************************************************************************************        
+void handleFileRsync(int sock_fd, char *orig_file_name)
 {
     sendStatus(sock_fd, FT_FILE_RSYNC);
 
     // Send file name to server
-    send(sock_fd, file_name, strlen(file_name), 0);
+    send(sock_fd, orig_file_name, strlen(orig_file_name), 0);
 
-    // Generate hashes for the local file and send to server
-    generateHashFile(file_name, TMP_HASH_FILE_NAME);
-
-    // Send hash file to server
-    transferFileToRemote(sock_fd, TMP_HASH_FILE_NAME);
-    
-    // Get status response from server before starting
-    if (waitForStatus(sock_fd) == FT_READY_SEND)
+    // Generate hashes for the local file and send to server for Rsync operation
+    if (generateRsyncHashFile(orig_file_name, TMP_HASH_FILE_NAME) == 0)
     {
-        // Get the resulting rsync file from the server
-        receiveFileFromRemote(sock_fd, TMP_RSYNC_FILE_NAME);
+        // Send hash file to server
+        transferFileToRemote(sock_fd, TMP_HASH_FILE_NAME);
         
-        // Process rsync file
-        processRsyncFile(file_name, TMP_RSYNC_FILE_NAME);
-        
-        // Remove temp hash file
-        remove(TMP_HASH_FILE_NAME);
+        // Get status response from server before starting
+        if (waitForStatus(sock_fd) == FT_READY_SEND)
+        {
+            // Get the resulting rsync file from the server
+            if (receiveFileFromRemote(sock_fd, TMP_RSYNC_FILE_NAME) == 0)
+            {
+                // Process rsync file
+                if (processRsyncFile(orig_file_name, TMP_RSYNC_FILE_NAME) == 0)
+                {
+                    printf("Rsync of file: %s complete\n", orig_file_name);
+                }
+                else 
+                {
+                    printf("Rsync of file: %s failure\n", orig_file_name);
+                }
+            }
+            else 
+            {
+                printf("Server failed to send file - Aborting\n");
+            }
+            
+            // Remove temp hash file
+            remove(TMP_HASH_FILE_NAME);
+        }
+        else
+        {
+            printf("Failed to get status from server - Aborting\n");
+        }
     }
-    else
+    else 
     {
-        printf("Server failed to send file - Aborting\n");
+        printf("Failed to generate Rsync hash file - Aborting\n");
     }
 }
 
+// ***********************************************************************************************************
+// Function: handleFileDownload
+//
+// Handles the downloading of a file from the server. Will overwrite the file in the working directory if
+// it exists. No Rsync operation is attempted.
+//
+// Inputs:  sock_fd           Socket file descriptor to the server
+//          orig_file_name    pointer to string containing the name of the original file to Rsync
+//
+// Returns: None
+// ***********************************************************************************************************        
 void handleFileDownload(int sock_fd, char *file_name)
 {
     sendStatus(sock_fd, FT_FILE_NEW);
@@ -149,7 +208,7 @@ void handleFileDownload(int sock_fd, char *file_name)
     // Get status response from server before starting
     if (waitForStatus(sock_fd) == FT_READY_SEND)
     {
-        // File does not exist locally - transfer complete file
+        // Transfer complete file from server - existing file will be overwritten if it exists
         receiveFileFromRemote(sock_fd, file_name);
     }
     else
@@ -158,6 +217,7 @@ void handleFileDownload(int sock_fd, char *file_name)
     }
 }
 
+
 int main(int argc, char *argv[])
 {
     int iSockFd;
@@ -165,7 +225,7 @@ int main(int argc, char *argv[])
     struct sockaddr_in sSockAddr;
 
     // Get file to transfer and remote host ip from the command line
-    if (argc > 2)
+    if (argc == 3)
     {
 	    strcpy(acFileName, argv[1]);
 
@@ -200,7 +260,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    // Check if file exists locally. If it does then we want to update the exising file
+    // Check if file exists locally. If it does then we want to update the exising file using Rsync
     if( access( acFileName, F_OK ) != -1 )
     {
         handleFileRsync(iSockFd, acFileName);

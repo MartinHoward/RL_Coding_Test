@@ -4,9 +4,16 @@
 #include "md5.h"
 #include "ft_defs.h"
 
-#define HASH_BASE 256
-#define PRIME_MOD 1000000007
-
+// ***********************************************************************************************************
+// Function: computeHashForBlock
+//
+// Computes a simple hash for a data block
+//
+// Inputs: data_block Pointer to block we wish to hash
+//         block_size Size of data block
+//
+// Returns: Hash of data block
+// ***********************************************************************************************************        
 unsigned long computeHashForBlock(BYTE *data_block, int block_size)
 {
     int i;
@@ -22,11 +29,35 @@ unsigned long computeHashForBlock(BYTE *data_block, int block_size)
     return hash;
 }
 
+// ***********************************************************************************************************
+// Function: computeRollingHash
+//
+// Computes the rolling hash when given the old hash with byte to be discarded at the front and byte to
+// be added at the end
+//
+// Inputs: hash        Current hash to modify
+//         first_byte  Byte being rolled off
+//         new_byte    Byte being added
+//         block_size  Size of data block
+//
+// Returns: Hash of data block
+// ***********************************************************************************************************        
 unsigned long computeRollingHash(unsigned long hash, BYTE first_byte, BYTE new_byte, int block_size)
 {
     return (hash + new_byte - first_byte) % (block_size + 1);
 }
 
+// ***********************************************************************************************************
+// Function: computeMd5HashForBlock
+//
+// Computes the MD5 hash for a data block. Makes use of MD5 code from RFC 1321
+//
+// Inputs: data_block  Pointer to block we wish to hash
+//         block_size  Size of data block
+//         hash        Pointer to MD5 digest to update
+//
+// Returns: Pointer to MD5 digest
+// ***********************************************************************************************************        
 unsigned char *computeMd5HashForBlock(BYTE *data_block, int block_size, unsigned char* hash)
 {
     MD5_CTX ctx;
@@ -86,10 +117,11 @@ teFtStatus waitForStatus(int sock_fd)
 // Inputs: sock_fd    Socket file descriptor
 //         file_name  Pointer to string containing local file to send
 //
-// Returns: None
+// Returns: 0 on success, -1 on failure
 // ***********************************************************************************************************        
-void transferFileToRemote(int sock_fd, char* file_name)
+int transferFileToRemote(int sock_fd, char* file_name)
 {
+    int rc = 0;
     tsFtFileBlock sFileBlock;
     FILE *pInFile;
   
@@ -116,8 +148,7 @@ void transferFileToRemote(int sock_fd, char* file_name)
                     sFileBlock.eStatus = FT_TRANSFER_COMPLETE;
                 }
                 
-                if (send(sock_fd, &sFileBlock, sizeof(sFileBlock), 0) == -1)
-                    printf("Failed to send to client - errno: %d", errno);
+                send(sock_fd, &sFileBlock, sizeof(sFileBlock), 0);
                     
                 // Slow things down a bit - Raspberry pi seems to get overwhelmed - fine on Mac OS
                 usleep(50000);
@@ -125,15 +156,21 @@ void transferFileToRemote(int sock_fd, char* file_name)
 
             // Wait for receipt ack from client
             if (waitForStatus(sock_fd) == FT_RECEIVE_ACK)
+            {
                 printf("Transfer complete: %s\n", file_name);
+            }
             else
+            {
                 printf("Client failed to acknowledge receipt\n");
+                rc = -1;
+            }
 
             fclose(pInFile);
         }
         else 
         {
             printf("Client failed to acknowledge ready to receive");
+            rc = -1;
         }
     }
     else
@@ -141,9 +178,10 @@ void transferFileToRemote(int sock_fd, char* file_name)
         // Send error status to client
         sendStatus(sock_fd, FT_FILE_NOT_FOUND);
         printf("File not found - transfer aborted\n");
+        rc = -1;
     }
     
-    return;
+    return rc;
 }
 
 // ***********************************************************************************************************
@@ -155,10 +193,11 @@ void transferFileToRemote(int sock_fd, char* file_name)
 // Inputs: sock_fd    Socket file descriptor
 //         file_name  Pointer to string containing remote file to retreive
 //
-// Returns: None
+// Returns: 0 on success, -1 on failure
 // ***********************************************************************************************************        
-void receiveFileFromRemote(int sock_fd, char* file_name)
+int receiveFileFromRemote(int sock_fd, char* file_name)
 {
+    int rc = 0;
     unsigned long ulBytesTransferred = 0; 
     tsFtFileBlock sFileBlock;
     FILE *pInFile;
@@ -173,6 +212,7 @@ void receiveFileFromRemote(int sock_fd, char* file_name)
             if (recv(sock_fd, &sFileBlock, sizeof(sFileBlock), 0) == -1)
             {
                 printf("Fatal server error - aborting\n");
+                rc = -1;
                 break;
             }
 
@@ -197,6 +237,7 @@ void receiveFileFromRemote(int sock_fd, char* file_name)
                 // Something unexpected happened - remove local file
                 //remove(file_name);
                 printf("Fatal server error - aborting\n");
+                rc = -1;
                 break;
             }
         }
@@ -205,9 +246,10 @@ void receiveFileFromRemote(int sock_fd, char* file_name)
     }
     else
     {
+        rc = -1;
         printf("Failed to open local file - Aborting\n");
     }
 
-    return;
+    return rc;
 }
 

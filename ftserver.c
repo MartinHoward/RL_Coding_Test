@@ -6,14 +6,25 @@
 
 char acFileDirectory[PATH_MAX];
 
-int searchForMatchingBlock(BYTE *data_block, char *hash_file, unsigned long hash)
+// ***********************************************************************************************************
+// Function: searchForMatchingBlock
+//
+// Searches for a block in the Rsync hash file using the given hash
+//
+// Inputs: data_block        pointer to the data block to search for
+//         hash_file_name    pointer to string containing the name of the hash file to send to the server
+//         hash              corresponding hash to the data block
+//
+// Returns: Block number starting at 0, -1 if no corresponding block found
+// ***********************************************************************************************************        
+int searchForMatchingBlock(BYTE *data_block, char *hash_file_name, unsigned long hash)
 {
     int rc = -1, iBlock = 0;
     FILE *pHashFile;
     unsigned char acMd5Hash[MD5_HASH_SIZE];
     tsFtFileBlockHash sBlockHash;
     
-    if ((pHashFile = fopen(hash_file, "rb")) != NULL)
+    if ((pHashFile = fopen(hash_file_name, "rb")) != NULL)
     {
         while (!feof(pHashFile))
         {
@@ -41,28 +52,40 @@ int searchForMatchingBlock(BYTE *data_block, char *hash_file, unsigned long hash
     return rc;
 }
 
-void generateRsyncFile(int sock_fd, char *source_file, char *hash_file)
+// ***********************************************************************************************************
+// Function: generateRsyncFile
+//
+// Generates an Rsync file to be sent to the client based on the hash file provided by the client and the
+// file requested on the server
+//
+// Inputs: sock_fd           Socket file descriptor to the remove client
+//         source_file_name  Name of file requested by the client          
+//         hash_file_name    pointer to string containing the name of the hash file
+//
+// Returns: 0 on success, -1 on failure
+// ***********************************************************************************************************        
+int generateRsyncFile(int sock_fd, char *source_file_name, char *hash_file_name)
 {
-    int iBlock;
+    int iBlock, rc = 0;
     char asRsyncFileName[NAME_MAX];
-    BYTE acDataBlock[MAX_BLOCK_SIZE];
+    BYTE cFirstByte, acDataBlock[MAX_BLOCK_SIZE];
     FILE *pSrcFile, *pRsyncFile;
     long lFilePos = 0, lSrcFileSize;
     struct stat st;
     unsigned long ulHash;
+    BOOL bComputeRollingHash = FALSE;
     
     // Start by creating the temp rsync file
     sprintf(asRsyncFileName, "tmpRsyncFile-%d", (int) pthread_self());
     
     // Get the size of the source file
-    stat(source_file, &st);
+    stat(source_file_name, &st);
     lSrcFileSize = st.st_size;
        
     // Process hash file and generate rsync file
-    if (((pSrcFile = fopen(source_file, "rb+")) != NULL) &&
+    if (((pSrcFile = fopen(source_file_name, "rb+")) != NULL) &&
          (pRsyncFile = fopen(asRsyncFileName, "wb")) != NULL)
     {
-        //while (!feof(pSrcFile))
         while(lFilePos < lSrcFileSize)
         {
             // Read block
@@ -70,10 +93,14 @@ void generateRsyncFile(int sock_fd, char *source_file, char *hash_file)
             fread(acDataBlock, 1, sizeof(acDataBlock), pSrcFile);
 
             // Compute hash for block
-            ulHash = computeHashForBlock(acDataBlock, sizeof(acDataBlock));
-            
+            if (!bComputeRollingHash)
+                ulHash = computeHashForBlock(acDataBlock, sizeof(acDataBlock));
+            else
+                ulHash = computeRollingHash(ulHash, cFirstByte, acDataBlock[sizeof(acDataBlock) - 1],
+                                            sizeof(acDataBlock));
+                            
             // Search for matching hash in hash file
-            if ((iBlock = searchForMatchingBlock(acDataBlock, hash_file, ulHash)) != -1)
+            if ((iBlock = searchForMatchingBlock(acDataBlock, hash_file_name, ulHash)) != -1)
             {
                 // Insert block reference in the rsync file
                 fputc(RSYNC_DATATYPE_BLOCK, pRsyncFile);
@@ -81,31 +108,56 @@ void generateRsyncFile(int sock_fd, char *source_file, char *hash_file)
                 
                 // Advance input file pointer by one block
                 lFilePos += sizeof(acDataBlock);
+                
+                // Need to compute full hash for next block
+                bComputeRollingHash = FALSE;
             }    
             else 
             {
                 // Insert character reference in the rsync file
+                cFirstByte = acDataBlock[0];
                 fputc(RSYNC_DATATYPE_BYTE, pRsyncFile);
-                fputc(acDataBlock[0], pRsyncFile);
+                fputc(cFirstByte, pRsyncFile);
 
                 // Advance input file pointer by one byte
                 lFilePos += 1;
+                
+                // Need to compute rolling hash
+                bComputeRollingHash = TRUE;
             }
         }
         
         fclose(pSrcFile);
         fclose(pRsyncFile);
     }
+    else 
+    {
+        rc = -1;
+    }
     
     // Send the rsync file to the client
-    transferFileToRemote(sock_fd, asRsyncFileName);
+    if (transferFileToRemote(sock_fd, asRsyncFileName) == -1)
+    {
+        rc = -1;
+    }
     
     // Remove tmpfile
     remove(asRsyncFileName);
           
-    return;
+    return rc;
 }
 
+// ***********************************************************************************************************
+// Function: handleFileRsyncRequest
+//
+// Handles an Rsync request from the client. It receives the hash file from the client and generates an
+// Rsync file which is then sent back to the client
+//
+// Inputs: sock_fd           Socket file descriptor to the remove client
+//         file_name         Name of file requested by the client          
+//
+// Returns: 0 on success, -1 on failure
+// ***********************************************************************************************************        
 void handleFileRsyncRequest(int sock_fd, char *file_name)
 {
     char acHashFileName[NAME_MAX];
@@ -117,13 +169,20 @@ void handleFileRsyncRequest(int sock_fd, char *file_name)
         sprintf(acHashFileName, "tmpHashFile-%d", (int) pthread_self());
     
         // Get the hash file from the client
-        receiveFileFromRemote(sock_fd, acHashFileName);
-    
-        // TODO: Process hash file and send response back
-        generateRsyncFile(sock_fd, file_name, acHashFileName);
-        
-        // TODO: Delete temp file
-        remove(acHashFileName);
+        if (receiveFileFromRemote(sock_fd, acHashFileName) == 0)
+        {
+            // Process hash file and send response back
+            if (generateRsyncFile(sock_fd, file_name, acHashFileName) == -1)
+            {
+                printf("Failed to generate and send Rsync file to client\n");
+            }
+            
+            // Delete temp file
+            remove(acHashFileName);
+        }
+        else {
+            printf("Failed to download hash file from client\n");
+        }
     }
     else
     {
@@ -131,12 +190,21 @@ void handleFileRsyncRequest(int sock_fd, char *file_name)
     }
 }
 
-void * handleClientRequestThread(void *argv)
+// ***********************************************************************************************************
+// Function: handleClientRequestThread
+//
+// Main thread function to service file download and Rsync requests from the cloent
+//
+// Inputs: argv    Point to thread argument. In this case a pointer to the socket connected to the client        
+//
+// Outputs: None
+// ***********************************************************************************************************        
+void *handleClientRequestThread(void *argv)
 {
     int iSock = *((int *)argv);
     char acFileName[NAME_MAX];
     char acFilePath[PATH_MAX+NAME_MAX];
-    BOOL bFileRsync = FALSE;
+    BOOL qFileRsync = FALSE;
 
     memset(acFileName, 0, sizeof(acFileName));
     memset(acFilePath, 0, sizeof(acFilePath));
@@ -144,11 +212,11 @@ void * handleClientRequestThread(void *argv)
     // Wait for client to indicate download type
     if (waitForStatus(iSock) == FT_FILE_RSYNC)
     {
-        bFileRsync = TRUE;
+        qFileRsync = TRUE;
         printf("File Rsync requested\n");
     }
     
-    // Receive file name to transfer from client
+    // Get file name to transfer from client
     recv(iSock, acFileName, NAME_MAX, 0);
 
     // Get full path name
@@ -156,7 +224,7 @@ void * handleClientRequestThread(void *argv)
 
     printf("File requested: %s\n", acFilePath);
 
-    if (bFileRsync)
+    if (qFileRsync)
     {
         handleFileRsyncRequest(iSock, acFilePath);
     }
@@ -169,6 +237,7 @@ void * handleClientRequestThread(void *argv)
 
     pthread_exit(NULL);
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -226,7 +295,7 @@ int main(int argc, char *argv[])
 
         if (pthread_create(&tid, NULL, handleClientRequestThread, &iClientSockFd) != 0)
         {
-            printf("Socket Error: listen failed\n");
+            printf("Socket Error: failed to accept connection\n");
             exit(EXIT_FAILURE);
         }
     }

@@ -53,7 +53,7 @@ unsigned long computeRollingHash(unsigned long hash, BYTE byte_to_roll, BYTE byt
 unsigned char *computeMd5HashForBlock(BYTE *data_block, int block_size, unsigned char* hash);
 int sendStatus(int sock_fd, teFtStatus status);
 teFtStatus waitForStatus(int sock_fd);
-void transferFileToRemote(int sock_fd, char* file_path);
-void receiveFileFromRemote(int sock_fd, char* file_name);
+int transferFileToRemote(int sock_fd, char* file_path);
+int receiveFileFromRemote(int sock_fd, char* file_name);
 
 #endif
