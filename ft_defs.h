@@ -13,10 +13,12 @@
 #define FALSE           0
 #define TRUE            !FALSE
 
-#define FT_IP_PORT      9999
-#define MAX_CLIENTS     5
-#define MAX_BLOCK_SIZE  256
-#define MD5_HASH_SIZE   16
+#define FT_IP_PORT           9999
+#define MAX_CLIENTS          5
+#define MAX_BLOCK_SIZE       256
+#define MD5_HASH_SIZE        16
+#define RSYNC_DATATYPE_BYTE  'C'
+#define RSYNC_DATATYPE_BLOCK 'B'
 
 typedef unsigned char   BYTE;
 typedef int BOOL;
@@ -24,7 +26,7 @@ typedef int BOOL;
 typedef enum
 {
     FT_FILE_NOT_FOUND    = 0,
-    FT_FILE_UPDATE       = 1,
+    FT_FILE_RSYNC        = 1,
     FT_FILE_NEW          = 2,
     FT_READY_RECEIVE     = 3,
     FT_READY_SEND        = 4,
@@ -45,12 +47,6 @@ typedef struct
     unsigned long ulHash;
     unsigned char acMd5Hash[MD5_HASH_SIZE];
 } tsFtFileBlockHash;
-
-typedef struct
-{
-    BOOL bReuseBlock;
-    unsigned long ulBlockIdOrChar;
-} tsRsyncRecord;
 
 unsigned long computeHashForBlock(BYTE *data_block, int block_size);
 unsigned long computeRollingHash(unsigned long hash, BYTE byte_to_roll, BYTE byte_to_add, int block_size);

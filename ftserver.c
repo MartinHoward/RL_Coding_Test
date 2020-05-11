@@ -1,16 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 #include "ft_defs.h"
 
 char acFileDirectory[PATH_MAX];
 
-int searchForHash(BYTE *data_block, char *hash_file, unsigned long hash)
+int searchForMatchingBlock(BYTE *data_block, char *hash_file, unsigned long hash)
 {
-    int rc = -1, block = 0;
+    int rc = -1, iBlock = 0;
     FILE *pHashFile;
-    tsFtFileBlockHash sBlockHash;
     unsigned char acMd5Hash[MD5_HASH_SIZE];
+    tsFtFileBlockHash sBlockHash;
     
     if ((pHashFile = fopen(hash_file, "rb")) != NULL)
     {
@@ -26,12 +27,12 @@ int searchForHash(BYTE *data_block, char *hash_file, unsigned long hash)
                 // Check for match
                 if (memcmp(acMd5Hash, sBlockHash.acMd5Hash, sizeof(acMd5Hash)) == 0)
                 {
-                    rc = block;
+                    rc = iBlock;
                     break;
                 }
             }
             
-            block++;
+            iBlock++;
         }
         
         fclose(pHashFile);
@@ -42,56 +43,53 @@ int searchForHash(BYTE *data_block, char *hash_file, unsigned long hash)
 
 void generateRsyncFile(int sock_fd, char *source_file, char *hash_file)
 {
-    int block;
+    int iBlock;
     char asRsyncFileName[NAME_MAX];
     BYTE acDataBlock[MAX_BLOCK_SIZE];
     FILE *pSrcFile, *pRsyncFile;
-    long lFilePos = 0;
-    tsRsyncRecord sRsyncRecord;
+    long lFilePos = 0, lSrcFileSize;
+    struct stat st;
     unsigned long ulHash;
     
     // Start by creating the temp rsync file
     sprintf(asRsyncFileName, "tmpRsyncFile-%d", (int) pthread_self());
     
-    // Open all files
-    if (((pSrcFile = fopen(source_file, "rb")) != NULL) &&    
-        ((pRsyncFile = fopen(asRsyncFileName, "wb")) != NULL))
+    // Get the size of the source file
+    stat(source_file, &st);
+    lSrcFileSize = st.st_size;
+       
+    // Process hash file and generate rsync file
+    if (((pSrcFile = fopen(source_file, "rb+")) != NULL) &&
+         (pRsyncFile = fopen(asRsyncFileName, "wb")) != NULL)
     {
-        while (!feof(pSrcFile))
+        //while (!feof(pSrcFile))
+        while(lFilePos < lSrcFileSize)
         {
             // Read block
+            fseek(pSrcFile, lFilePos, SEEK_SET);
             fread(acDataBlock, 1, sizeof(acDataBlock), pSrcFile);
 
             // Compute hash for block
             ulHash = computeHashForBlock(acDataBlock, sizeof(acDataBlock));
             
-            printf("Computed hash %ld - lFilePos %ld\n", ulHash, lFilePos);
-    
             // Search for matching hash in hash file
-            if ((block = searchForHash(acDataBlock, hash_file, ulHash)) != -1)
+            if ((iBlock = searchForMatchingBlock(acDataBlock, hash_file, ulHash)) != -1)
             {
-                // A matching block has been found, add info to rsync file
-                sRsyncRecord.bReuseBlock = TRUE;
-                sRsyncRecord.ulBlockIdOrChar = block;
-            
-                fwrite(&sRsyncRecord, sizeof(sRsyncRecord), 1, pRsyncFile);
+                // Insert block reference in the rsync file
+                fputc(RSYNC_DATATYPE_BLOCK, pRsyncFile);
+                fwrite(&iBlock, sizeof(iBlock), 1, pRsyncFile);
                 
                 // Advance input file pointer by one block
                 lFilePos += sizeof(acDataBlock);
-                //fseek(pSrcFile, lFilePos, SEEK_CUR);
             }    
             else 
             {
-                // Send the first byte in the block
-                sRsyncRecord.bReuseBlock = FALSE;
-                sRsyncRecord.ulBlockIdOrChar = (BYTE) acDataBlock[0];
-            
-                fwrite(&sRsyncRecord, sizeof(sRsyncRecord), 1, pRsyncFile);
-                
+                // Insert character reference in the rsync file
+                fputc(RSYNC_DATATYPE_BYTE, pRsyncFile);
+                fputc(acDataBlock[0], pRsyncFile);
+
                 // Advance input file pointer by one byte
-                lFilePos += sizeof(acDataBlock);
-                rewind(pSrcFile);
-                fseek(pSrcFile, lFilePos, SEEK_SET);
+                lFilePos += 1;
             }
         }
         
@@ -108,7 +106,7 @@ void generateRsyncFile(int sock_fd, char *source_file, char *hash_file)
     return;
 }
 
-void handleFileUpdateRequest(int sock_fd, char *file_name)
+void handleFileRsyncRequest(int sock_fd, char *file_name)
 {
     char acHashFileName[NAME_MAX];
     
@@ -138,16 +136,16 @@ void * handleClientRequestThread(void *argv)
     int iSock = *((int *)argv);
     char acFileName[NAME_MAX];
     char acFilePath[PATH_MAX+NAME_MAX];
-    BOOL bFileUpdate = FALSE;
+    BOOL bFileRsync = FALSE;
 
     memset(acFileName, 0, sizeof(acFileName));
     memset(acFilePath, 0, sizeof(acFilePath));
     
     // Wait for client to indicate download type
-    if (waitForStatus(iSock) == FT_FILE_UPDATE)
+    if (waitForStatus(iSock) == FT_FILE_RSYNC)
     {
-        bFileUpdate = TRUE;
-        printf("File update requested\n");
+        bFileRsync = TRUE;
+        printf("File Rsync requested\n");
     }
     
     // Receive file name to transfer from client
@@ -158,9 +156,9 @@ void * handleClientRequestThread(void *argv)
 
     printf("File requested: %s\n", acFilePath);
 
-    if (bFileUpdate)
+    if (bFileRsync)
     {
-        handleFileUpdateRequest(iSock, acFilePath);
+        handleFileRsyncRequest(iSock, acFilePath);
     }
     else 
     {

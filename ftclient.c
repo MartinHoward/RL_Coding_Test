@@ -3,16 +3,19 @@
 
 #include "ft_defs.h"
 
-#define TMP_HASH_FILE_NAME "tmpHashFile"
+#define TMP_FINAL_FILE      "tmpFinalFile"
+#define TMP_HASH_FILE_NAME  "tmpHashFile"
+#define TMP_RSYNC_FILE_NAME "tmpRsyncFile"
 
-void generateHashFile(char *file_name)
+int generateHashFile(char *file_name, char *hash_file_name)
 {
+    int rc = 0;
     FILE *pInFile, *pTmpFile;
     tsFtFileBlock sFileBlock;
     tsFtFileBlockHash sBlockHash;
 
     if (((pInFile = fopen(file_name, "rb")) != NULL) &&
-         (pTmpFile = fopen(TMP_HASH_FILE_NAME, "wb")) != NULL)
+         (pTmpFile = fopen(hash_file_name, "wb")) != NULL)
     {
         while (!feof(pInFile))
         {
@@ -28,18 +31,92 @@ void generateHashFile(char *file_name)
         fclose(pInFile);
         fclose(pTmpFile);
     }
-    return;
+    else 
+    {
+        rc = -1;
+    }
+    
+    return rc;
 }
 
-void handleFileUpdate(int sock_fd, char *file_name)
+int processRsyncFile(char *file_name, char *rsync_file_name)
 {
-    sendStatus(sock_fd, FT_FILE_UPDATE);
+    int iBlock, rc = 0;
+    char cDataType;
+    BYTE bNewByte;
+    FILE *pInFile, *pTmpRsyncFile, *pTmpFinalFile;
+    char acFileBlock[MAX_BLOCK_SIZE];
+    
+    if ((  ((pInFile = fopen(file_name, "rb")) != NULL) &&
+           (pTmpRsyncFile = fopen(rsync_file_name, "rb")) != NULL) &&
+           (pTmpFinalFile = fopen(TMP_FINAL_FILE, "wb")) != NULL)
+    {
+        while (!feof(pTmpRsyncFile))
+        {
+            // Read data type character
+            cDataType = getc(pTmpRsyncFile);
+            
+            if (cDataType == RSYNC_DATATYPE_BYTE)
+            {
+                // Read the character and write to final file
+                bNewByte = getc(pTmpRsyncFile);
+                
+                fputc(bNewByte, pTmpFinalFile);
+            }
+            else if (cDataType == RSYNC_DATATYPE_BLOCK)
+            {
+                // Read the corresponding block and write to final file
+                fread(&iBlock, sizeof(iBlock), 1, pTmpRsyncFile);
+                
+                fseek(pInFile, iBlock * MAX_BLOCK_SIZE, SEEK_SET);
+                fread(acFileBlock, sizeof(acFileBlock), 1, pInFile);
+                
+                fwrite(acFileBlock, sizeof(acFileBlock), 1, pTmpFinalFile);
+            }
+            else {
+                if (!feof(pTmpRsyncFile))
+                {
+                    printf("Rsync file parse error\n");
+                    rc = -1;
+                    break;
+                }
+            }
+        }
+        
+        if (rc == 0)
+        {
+            fclose(pInFile);
+            fclose(pTmpRsyncFile);
+            fclose(pTmpFinalFile);
+            
+            // Remove temp rsync file
+            remove(rsync_file_name);
+            
+            // Replace old file with temp file
+            remove(file_name);
+            rename(TMP_FINAL_FILE, file_name);
+        
+            printf("Rsync of file: %s complete\n", file_name);
+        }
+    }
+    else 
+    {
+        rc = -1;
+        printf("Failed to process Rsync file\n");
+    }
+    
+    return rc;
+}
+
+void handleFileRsync(int sock_fd, char *file_name)
+{
+    sendStatus(sock_fd, FT_FILE_RSYNC);
 
     // Send file name to server
     send(sock_fd, file_name, strlen(file_name), 0);
 
     // Generate hashes for the local file and send to server
-    generateHashFile(file_name);
+    generateHashFile(file_name, TMP_HASH_FILE_NAME);
 
     // Send hash file to server
     transferFileToRemote(sock_fd, TMP_HASH_FILE_NAME);
@@ -47,8 +124,14 @@ void handleFileUpdate(int sock_fd, char *file_name)
     // Get status response from server before starting
     if (waitForStatus(sock_fd) == FT_READY_SEND)
     {
-        // File does not exist locally - transfer complete file
-        receiveFileFromRemote(sock_fd, "tmpRsync");
+        // Get the resulting rsync file from the server
+        receiveFileFromRemote(sock_fd, TMP_RSYNC_FILE_NAME);
+        
+        // Process rsync file
+        processRsyncFile(file_name, TMP_RSYNC_FILE_NAME);
+        
+        // Remove temp hash file
+        remove(TMP_HASH_FILE_NAME);
     }
     else
     {
@@ -120,7 +203,7 @@ int main(int argc, char *argv[])
     // Check if file exists locally. If it does then we want to update the exising file
     if( access( acFileName, F_OK ) != -1 )
     {
-        handleFileUpdate(iSockFd, acFileName);
+        handleFileRsync(iSockFd, acFileName);
     }
     else
     {

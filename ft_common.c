@@ -111,7 +111,7 @@ void transferFileToRemote(int sock_fd, char* file_name)
                 sFileBlock.iByteCount = fread(sFileBlock.acDataBlock, 1, MAX_BLOCK_SIZE, pInFile);
 
                 // When end of file is reached we want to tell the client to not expect any more
-                if (feof(pInFile) || sFileBlock.iByteCount < MAX_BLOCK_SIZE)
+                if (feof(pInFile))
                 {
                     sFileBlock.eStatus = FT_TRANSFER_COMPLETE;
                 }
@@ -178,15 +178,12 @@ void receiveFileFromRemote(int sock_fd, char* file_name)
 
             ulBytesTransferred += sFileBlock.iByteCount;
 
-            printf("**** Recevied: %ld bytes, status: %d\n", ulBytesTransferred, sFileBlock.eStatus);
-            
             if ((sFileBlock.eStatus == FT_TRANSFER_CONTINUE) ||
                 (sFileBlock.eStatus == FT_TRANSFER_COMPLETE))
             {
                 fwrite(sFileBlock.acDataBlock, sFileBlock.iByteCount, 1, pInFile);
 
-                if ((sFileBlock.eStatus == FT_TRANSFER_COMPLETE) ||
-                    (sFileBlock.iByteCount < MAX_BLOCK_SIZE))
+                if (sFileBlock.eStatus == FT_TRANSFER_COMPLETE)
                 {
                     // Acknowledge file received to server
                     sendStatus(sock_fd, FT_RECEIVE_ACK);
